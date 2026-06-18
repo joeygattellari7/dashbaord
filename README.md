@@ -1,36 +1,24 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Meta Ads Dashboard
 
-## Getting Started
+Real-time(ish) dashboard for Meta (Facebook/Instagram) ad performance, with AI-generated insights and action items.
 
-First, run the development server:
+## How it works
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+- **Metrics**: `src/lib/meta.ts` calls the Meta Marketing API for today's campaign-level insights, aggregated into account totals.
+- **Live updates**: `src/app/api/metrics/stream/route.ts` is a Server-Sent Events (SSE) endpoint that polls Meta on an interval (`METRICS_POLL_INTERVAL_SECONDS`, default 300s) and pushes new snapshots to the browser. Meta's API has no real-time webhook for ad metrics, so polling is the practical "real-time" mechanism — keep the interval at or above a few minutes to stay within rate limits.
+- **Insights & action items**: `src/app/api/insights/route.ts` sends the latest snapshot to Claude (Anthropic API) and asks for structured insights (trends/anomalies) and prioritized action items, rendered in the dashboard via a "Generate Insights" button.
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Setup
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+1. Copy `env.example` to `.env.local` and fill in:
+   - `META_ACCESS_TOKEN` — a Meta Marketing API access token with `ads_read` permission on the target ad account.
+   - `META_AD_ACCOUNT_ID` — your ad account ID, in the form `act_XXXXXXXXXX`.
+   - `ANTHROPIC_API_KEY` — for generating insights.
+2. `npm install`
+3. `npm run dev`
+4. Open [http://localhost:3000](http://localhost:3000).
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Notes
 
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- Metrics are scoped to "today" (`date_preset: today`) at the campaign level; adjust `src/lib/meta.ts` if you want a different date range or ad-set/ad granularity.
+- The insights endpoint is called on demand from the UI (not on every poll) to control Claude API cost; wire it into the poll loop if you want insights to refresh automatically.
