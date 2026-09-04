@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { MetricCard } from "@/components/MetricCard";
-import type { AccountSnapshot, ClientConfig, InsightsResponse } from "@/lib/types";
+import { WINDOWS } from "@/lib/meta";
+import type { AccountSnapshot, ClientConfig, InsightsResponse, Window } from "@/lib/types";
 
 interface ClientSnapshot {
   client: ClientConfig;
@@ -11,6 +12,7 @@ interface ClientSnapshot {
 
 const currency = (n: number) => `$${n.toFixed(2)}`;
 const number = (n: number) => Math.round(n).toLocaleString();
+const windowLabel: Record<Window, string> = { "7d": "Last 7 days", "14d": "Last 14 days", "30d": "Last 30 days" };
 
 const severityStyles: Record<string, string> = {
   info: "border-blue-200 bg-blue-50 text-blue-900 dark:border-blue-900 dark:bg-blue-950 dark:text-blue-200",
@@ -29,6 +31,7 @@ export default function Dashboard() {
   const [clientSnapshots, setClientSnapshots] = useState<ClientSnapshot[]>([]);
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [activeWindow, setActiveWindow] = useState<Window>("7d");
   const [insightsByClient, setInsightsByClient] = useState<Record<string, InsightsResponse>>({});
   const [insightsLoading, setInsightsLoading] = useState<string | null>(null);
   const [insightsError, setInsightsError] = useState<string | null>(null);
@@ -63,6 +66,7 @@ export default function Dashboard() {
     () => clientSnapshots.find((c) => c.client.id === selectedId) ?? null,
     [clientSnapshots, selectedId]
   );
+  const selectedWindow = selected?.snapshot.windows[activeWindow];
 
   const loadInsights = async (clientId: string) => {
     setInsightsLoading(clientId);
@@ -81,8 +85,8 @@ export default function Dashboard() {
 
   const agencyTotals = clientSnapshots.reduce(
     (acc, c) => {
-      acc.spend += c.snapshot.totals.spend;
-      acc.conversions += c.snapshot.totals.conversions;
+      acc.spend += c.snapshot.windows[activeWindow].totals.spend;
+      acc.conversions += c.snapshot.windows[activeWindow].totals.conversions;
       return acc;
     },
     { spend: 0, conversions: 0 }
@@ -99,18 +103,35 @@ export default function Dashboard() {
             {clientSnapshots.length > 0
               ? `${clientSnapshots.length} accounts · spend ${currency(agencyTotals.spend)} · ${number(
                   agencyTotals.conversions
-                )} conversions · Meta only (Google/TikTok/LinkedIn not connected yet)`
+                )} conversions (${windowLabel[activeWindow].toLowerCase()}) · Meta only`
               : "Connecting to live metrics..."}
           </p>
         </div>
-        <a
-          href="/api/daily-report?preview=1"
-          target="_blank"
-          rel="noreferrer"
-          className="rounded-full border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800"
-        >
-          Preview daily email
-        </a>
+        <div className="flex items-center gap-3">
+          <div className="flex rounded-full border border-zinc-300 p-0.5 dark:border-zinc-700">
+            {WINDOWS.map((w) => (
+              <button
+                key={w}
+                onClick={() => setActiveWindow(w)}
+                className={`rounded-full px-3 py-1.5 text-sm font-medium transition ${
+                  activeWindow === w
+                    ? "bg-zinc-900 text-white dark:bg-zinc-50 dark:text-zinc-900"
+                    : "text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                }`}
+              >
+                {w}
+              </button>
+            ))}
+          </div>
+          <a
+            href="/api/daily-report?preview=1"
+            target="_blank"
+            rel="noreferrer"
+            className="rounded-full border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800"
+          >
+            Preview daily email
+          </a>
+        </div>
       </header>
 
       {connectionError && (
@@ -137,17 +158,20 @@ export default function Dashboard() {
                   {health && <span className={`h-2 w-2 shrink-0 rounded-full ${healthDot[health]}`} />}
                   {client.name}
                 </span>
-                <span className="shrink-0 text-xs opacity-70">{currency(snapshot.totals.spend)}</span>
+                <span className="shrink-0 text-xs opacity-70">{currency(snapshot.windows[activeWindow].totals.spend)}</span>
               </button>
             );
           })}
         </aside>
 
         <div className="flex flex-col gap-8">
-          {selected && (
+          {selected && selectedWindow && (
             <>
               <div className="flex items-center justify-between">
-                <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">{selected.client.name}</h2>
+                <div>
+                  <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">{selected.client.name}</h2>
+                  <p className="text-xs text-zinc-500">{windowLabel[activeWindow]}</p>
+                </div>
                 <button
                   onClick={() => loadInsights(selected.client.id)}
                   disabled={insightsLoading === selected.client.id}
@@ -158,23 +182,39 @@ export default function Dashboard() {
               </div>
 
               <section className="grid grid-cols-2 gap-4 sm:grid-cols-5">
-                <MetricCard label={`Spend (${selected.snapshot.datePreset})`} value={currency(selected.snapshot.totals.spend)} />
-                <MetricCard label="Impressions" value={number(selected.snapshot.totals.impressions)} />
+                <MetricCard label="Spend" value={currency(selectedWindow.totals.spend)} />
+                <MetricCard label="Impressions" value={number(selectedWindow.totals.impressions)} />
                 <MetricCard
                   label="Clicks"
-                  value={number(selected.snapshot.totals.clicks)}
-                  sub={`CTR ${selected.snapshot.totals.ctr.toFixed(2)}%`}
+                  value={number(selectedWindow.totals.clicks)}
+                  sub={`CTR ${selectedWindow.totals.ctr.toFixed(2)}%`}
                 />
                 <MetricCard
                   label="Conversions"
-                  value={number(selected.snapshot.totals.conversions)}
-                  sub={`ROAS ${selected.snapshot.totals.roas.toFixed(2)}x`}
+                  value={number(selectedWindow.totals.conversions)}
+                  sub={`ROAS ${selectedWindow.totals.roas.toFixed(2)}x`}
                 />
-                <MetricCard label="CPC" value={currency(selected.snapshot.totals.cpc)} sub={`CPM ${currency(selected.snapshot.totals.cpm)}`} />
+                <MetricCard label="CPC" value={currency(selectedWindow.totals.cpc)} sub={`CPM ${currency(selectedWindow.totals.cpm)}`} />
+              </section>
+
+              <section className="grid grid-cols-3 divide-x divide-zinc-200 rounded-xl border border-zinc-200 text-sm dark:divide-zinc-800 dark:border-zinc-800">
+                {WINDOWS.map((w) => {
+                  const t = selected.snapshot.windows[w].totals;
+                  return (
+                    <div key={w} className={`p-3 ${activeWindow === w ? "bg-zinc-50 dark:bg-zinc-900" : ""}`}>
+                      <div className="text-xs font-medium uppercase tracking-wide text-zinc-500">{windowLabel[w]}</div>
+                      <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-zinc-600 dark:text-zinc-300">
+                        <span>{currency(t.spend)} spend</span>
+                        <span>{number(t.conversions)} conv.</span>
+                        <span>{t.roas.toFixed(2)}x ROAS</span>
+                      </div>
+                    </div>
+                  );
+                })}
               </section>
 
               <section>
-                <h3 className="mb-3 text-base font-semibold text-zinc-900 dark:text-zinc-50">Campaigns</h3>
+                <h3 className="mb-3 text-base font-semibold text-zinc-900 dark:text-zinc-50">Campaigns ({windowLabel[activeWindow].toLowerCase()})</h3>
                 <div className="overflow-x-auto rounded-xl border border-zinc-200 dark:border-zinc-800">
                   <table className="w-full text-sm">
                     <thead className="bg-zinc-50 text-left text-zinc-500 dark:bg-zinc-900">
@@ -190,7 +230,7 @@ export default function Dashboard() {
                       </tr>
                     </thead>
                     <tbody>
-                      {selected.snapshot.campaigns.map((c) => (
+                      {selectedWindow.campaigns.map((c) => (
                         <tr key={c.campaignId} className="border-t border-zinc-100 dark:border-zinc-800">
                           <td className="px-4 py-2 font-medium text-zinc-900 dark:text-zinc-50">{c.campaignName}</td>
                           <td className="px-4 py-2 text-zinc-500">{c.status}</td>
@@ -202,10 +242,10 @@ export default function Dashboard() {
                           <td className="px-4 py-2">{c.roas.toFixed(2)}x</td>
                         </tr>
                       ))}
-                      {selected.snapshot.campaigns.length === 0 && (
+                      {selectedWindow.campaigns.length === 0 && (
                         <tr>
                           <td colSpan={8} className="px-4 py-6 text-center text-zinc-400">
-                            No campaign activity in this period.
+                            No campaign activity in this window.
                           </td>
                         </tr>
                       )}
@@ -225,7 +265,7 @@ export default function Dashboard() {
                   <div className="rounded-lg border border-zinc-200 bg-white px-4 py-3 text-sm dark:border-zinc-800 dark:bg-zinc-900">
                     <div className="mb-1 flex items-center gap-2 font-medium text-zinc-900 dark:text-zinc-50">
                       <span className={`h-2 w-2 rounded-full ${healthDot[selectedInsights.healthStatus]}`} />
-                      Summary
+                      Summary (7/14/30-day analysis)
                     </div>
                     <div className="text-zinc-600 dark:text-zinc-300">{selectedInsights.summary}</div>
                   </div>

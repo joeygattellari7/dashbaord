@@ -1,5 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
-import type { AccountSnapshot } from "./meta";
+import { WINDOWS, type AccountSnapshot, type WindowSnapshot } from "./meta";
 import type { ClientConfig } from "./clients";
 import type { ClientHealthCheck } from "./types";
 
@@ -11,11 +11,13 @@ const HEALTH_CHECK_SCHEMA = {
     healthStatus: { type: "string", enum: ["good", "warning", "critical"] },
     summary: {
       type: "string",
-      description: "2-3 sentence plain-English summary of how this account is doing right now.",
+      description:
+        "2-3 sentence plain-English summary of how this account is doing right now, referencing short vs. longer-term trend where relevant.",
     },
     keyNotes: {
       type: "array",
-      description: "Short, notable facts worth knowing (trends, standouts, context). Not necessarily problems.",
+      description:
+        "Short, notable facts worth knowing — trend shifts across the 7/14/30-day windows, standout campaigns, seasonality. Not necessarily problems.",
       items: { type: "string" },
     },
     flags: {
@@ -50,44 +52,47 @@ const HEALTH_CHECK_SCHEMA = {
   required: ["healthStatus", "summary", "keyNotes", "flags", "optimizations"],
 };
 
-function fmtTotals(t: AccountSnapshot["totals"]) {
+function fmtTotals(t: WindowSnapshot["totals"]) {
   return `spend $${t.spend.toFixed(2)}, impressions ${Math.round(t.impressions)}, clicks ${Math.round(
     t.clicks
   )}, CTR ${t.ctr.toFixed(2)}%, CPC $${t.cpc.toFixed(2)}, CPM $${t.cpm.toFixed(2)}, conversions ${Math.round(
     t.conversions
-  )}, ROAS ${t.roas.toFixed(2)}x`;
+  )}, cost/conversion $${t.conversions > 0 ? (t.spend / t.conversions).toFixed(2) : "n/a"}, ROAS ${t.roas.toFixed(2)}x`;
+}
+
+function fmtCampaigns(w: WindowSnapshot): string {
+  if (w.campaigns.length === 0) return "(no campaign activity in this window)";
+  return w.campaigns
+    .map(
+      (c) =>
+        `- [${c.campaignId}] ${c.campaignName} (${c.status}): spend $${c.spend.toFixed(2)}, CTR ${c.ctr.toFixed(
+          2
+        )}%, CPC $${c.cpc.toFixed(2)}, CPM $${c.cpm.toFixed(2)}, conversions ${c.conversions}, cost/conversion $${c.costPerConversion.toFixed(
+          2
+        )}, ROAS ${c.roas.toFixed(2)}x`
+    )
+    .join("\n");
 }
 
 function buildPrompt(client: ClientConfig, snapshot: AccountSnapshot): string {
+  const sections = WINDOWS.map((window) => {
+    const w = snapshot.windows[window];
+    return `### Last ${window}\nTotals: ${fmtTotals(w.totals)}\nCampaigns:\n${fmtCampaigns(w)}`;
+  }).join("\n\n");
+
   return `You are a senior paid-media analyst doing a daily health check on a Meta (Facebook/Instagram) Ads account for a client of an agency.
 
 Client: ${client.name}
-Period: ${snapshot.datePreset}
 
-Account totals (${snapshot.datePreset}): ${fmtTotals(snapshot.totals)}
-Account totals (trailing 7 days, for trend comparison): ${fmtTotals(snapshot.previousPeriodTotals)}
+You are given the SAME account across three overlapping windows — last 7 days, last 14 days, and last 30 days — so you can distinguish short-term noise from a real trend (e.g. "CPA is up over 30 days but has recovered in the last 7" vs. "CPA has been climbing steadily across all three windows").
 
-Campaigns (${snapshot.datePreset}):
-${
-  snapshot.campaigns.length === 0
-    ? "(no campaign activity in this period)"
-    : snapshot.campaigns
-        .map(
-          (c) =>
-            `- [${c.campaignId}] ${c.campaignName} (${c.status}): spend $${c.spend.toFixed(2)}, CTR ${c.ctr.toFixed(
-              2
-            )}%, CPC $${c.cpc.toFixed(2)}, CPM $${c.cpm.toFixed(2)}, conversions ${c.conversions}, cost/conversion $${c.costPerConversion.toFixed(
-              2
-            )}, ROAS ${c.roas.toFixed(2)}x`
-        )
-        .join("\n")
-}
+${sections}
 
-Produce a daily health check for this client covering:
-1. healthStatus: an overall traffic-light read (good/warning/critical) for this account right now.
-2. summary: plain-English, 2-3 sentences, written for the account owner (not a media buyer) — no jargon dumps.
-3. keyNotes: short factual notes worth flagging (trend shifts vs. the 7-day baseline, standout campaigns, seasonality, etc). These are FYI, not necessarily problems.
-4. flags: real risks or anomalies (budget pacing issues, CTR/CPM red flags, conversion drop-offs, learning phase stuck, disapproved/rejected items implied by status, frequency/creative fatigue). Most severe first.
+Produce ONE daily health check for this client that synthesizes all three windows:
+1. healthStatus: an overall traffic-light read (good/warning/critical) for this account right now, weighted toward the most recent (7-day) data but informed by the longer trend.
+2. summary: plain-English, 2-3 sentences, written for the account owner (not a media buyer) — no jargon dumps. Call out whether things are trending up, down, or flat across the windows.
+3. keyNotes: short factual notes worth flagging — trend shifts between the 7/14/30-day windows, standout campaigns, seasonality. These are FYI, not necessarily problems.
+4. flags: real risks or anomalies visible in any window (budget pacing issues, CTR/CPM red flags, conversion drop-offs, learning phase stuck, frequency/creative fatigue, a metric getting steadily worse across windows). Most severe first. Note which window(s) the issue shows up in.
 5. optimizations: specific, actionable next steps referencing campaign names/IDs (pause X, shift budget from X to Y, refresh creative on X, tighten targeting on X, raise/lower bid on X). Be concrete, not generic advice.
 
 Reference campaign names (and IDs where useful) directly. Keep everything concise and skimmable.`;

@@ -7,9 +7,9 @@ Google Ads, TikTok Ads and LinkedIn Ads are not wired in yet (no API access conf
 ## How it works
 
 - **Clients**: `src/lib/clients.ts` reads the `CLIENTS` env var (a JSON array of `{id, name, metaAdAccountId}`) — pre-filled with your current 10 clients (11 ad accounts, since Fast Client Formula runs separate USA/AU accounts).
-- **Metrics**: `src/lib/meta.ts` calls the Meta Marketing API per client for yesterday's campaign-level insights plus a trailing-7-day baseline for trend comparison.
-- **Live dashboard**: `src/app/api/metrics/stream/route.ts` is a Server-Sent Events endpoint that polls every client on an interval (`METRICS_POLL_INTERVAL_SECONDS`, default 300s). The UI (`src/components/Dashboard.tsx`) lists every client with a health dot, and lets you drill into one account's campaigns.
-- **Health check (flags/notes/optimizations)**: `src/lib/insights.ts` sends a client's snapshot to Claude and asks for a structured health check: overall status, plain-English summary, key notes, biggest flags (ranked by severity), and concrete optimizations. Triggered on demand per client via "Run health check" in the UI (`/api/insights?clientId=...`), or for every client at once by the daily report.
+- **Metrics**: `src/lib/meta.ts` calls the Meta Marketing API per client for **three overlapping windows at once — last 7, 14, and 30 days** — each with its own campaign-level breakdown, so short-term noise can be told apart from a real trend.
+- **Live dashboard**: `src/app/api/metrics/stream/route.ts` is a Server-Sent Events endpoint that polls every client on an interval (`METRICS_POLL_INTERVAL_SECONDS`, default 300s). The UI (`src/components/Dashboard.tsx`) lists every client with a health dot, has a 7d/14d/30d toggle, and lets you drill into one account's campaigns for the selected window.
+- **Health check (flags/notes/optimizations)**: `src/lib/insights.ts` sends a client's full 7/14/30-day snapshot to Claude in one call and asks for a single structured health check that synthesizes all three windows: overall status, plain-English summary, key notes, biggest flags (ranked by severity, noting which window they show up in), and concrete optimizations. Triggered on demand per client via "Run health check" in the UI (`/api/insights?clientId=...`), or for every client at once by the daily report.
 - **Daily email**: `src/app/api/daily-report/route.ts` runs the health check for every client, renders one email with a section per client, and sends it via Gmail SMTP (`src/lib/email.ts`). Preview it anytime at `/api/daily-report?preview=1` without sending.
 
 ## Setup
@@ -43,5 +43,6 @@ Follow the pattern in `src/lib/meta.ts` + `src/lib/clients.ts`:
 
 ## Notes
 
-- Metrics default to `date_preset: yesterday` (a full day of data) with a `last_7d` baseline for trend deltas; adjust in `src/lib/meta.ts` if you want a different window or ad-set/ad granularity.
+- Windows are fixed at 7/14/30 days (`src/lib/meta.ts`'s `WINDOWS` constant); adjust there if you want different lookbacks or ad-set/ad granularity.
 - Per-client health checks are called on demand (UI button) or once daily (email) to control Claude API cost — not on every metrics poll.
+- Each client's Meta account makes 4 API calls (3 windows + campaign statuses) whenever a snapshot is fetched — with 11 accounts polling every 5 minutes that's within normal rate limits, but raise `METRICS_POLL_INTERVAL_SECONDS` if you add many more clients.

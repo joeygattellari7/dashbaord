@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
-import { fetchAccountSnapshot } from "@/lib/meta";
+import { emptyAccountSnapshot, fetchAccountSnapshot } from "@/lib/meta";
 import { getClients } from "@/lib/clients";
 import { generateClientHealthCheck } from "@/lib/insights";
 import { sendDailyReportEmail, renderDailyReportHtml } from "@/lib/email";
@@ -49,24 +49,7 @@ async function buildDailyReport(): Promise<DailyReport> {
         keyNotes: [],
         flags: [{ title: "Report generation failed", detail: String(result.reason), severity: "critical" }],
         optimizations: [],
-        snapshot: {
-          fetchedAt: new Date().toISOString(),
-          accountId: client.metaAdAccountId,
-          datePreset: "yesterday",
-          totals: { spend: 0, impressions: 0, clicks: 0, ctr: 0, cpc: 0, cpm: 0, reach: 0, conversions: 0, roas: 0 },
-          previousPeriodTotals: {
-            spend: 0,
-            impressions: 0,
-            clicks: 0,
-            ctr: 0,
-            cpc: 0,
-            cpm: 0,
-            reach: 0,
-            conversions: 0,
-            roas: 0,
-          },
-          campaigns: [],
-        },
+        snapshot: emptyAccountSnapshot(client.metaAdAccountId),
       });
     }
   }

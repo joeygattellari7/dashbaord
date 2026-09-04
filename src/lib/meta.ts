@@ -1,6 +1,15 @@
 const API_VERSION = process.env.META_API_VERSION || "v21.0";
 const BASE_URL = `https://graph.facebook.com/${API_VERSION}`;
 
+export const WINDOWS = ["7d", "14d", "30d"] as const;
+export type Window = (typeof WINDOWS)[number];
+
+const DATE_PRESET_BY_WINDOW: Record<Window, string> = {
+  "7d": "last_7d",
+  "14d": "last_14d",
+  "30d": "last_30d",
+};
+
 export interface CampaignInsight {
   campaignId: string;
   campaignName: string;
@@ -29,14 +38,17 @@ export interface AccountTotals {
   roas: number;
 }
 
+export interface WindowSnapshot {
+  window: Window;
+  datePreset: string;
+  totals: AccountTotals;
+  campaigns: CampaignInsight[];
+}
+
 export interface AccountSnapshot {
   fetchedAt: string;
   accountId: string;
-  datePreset: string;
-  totals: AccountTotals;
-  /** Same totals shape, trailing 7 days, for trend comparison in the daily report. */
-  previousPeriodTotals: AccountTotals;
-  campaigns: CampaignInsight[];
+  windows: Record<Window, WindowSnapshot>;
 }
 
 function num(v: unknown): number {
@@ -142,25 +154,42 @@ function totalsFromCampaigns(campaigns: CampaignInsight[]): AccountTotals {
 
 const INSIGHT_FIELDS = "campaign_id,campaign_name,spend,impressions,clicks,ctr,cpc,cpm,reach,actions,action_values";
 
-export async function fetchAccountSnapshot(
-  accountId: string,
-  datePreset: string = "yesterday"
-): Promise<AccountSnapshot> {
+const EMPTY_TOTALS: AccountTotals = {
+  spend: 0,
+  impressions: 0,
+  clicks: 0,
+  ctr: 0,
+  cpc: 0,
+  cpm: 0,
+  reach: 0,
+  conversions: 0,
+  roas: 0,
+};
+
+export function emptyAccountSnapshot(accountId: string): AccountSnapshot {
+  const windows = {} as Record<Window, WindowSnapshot>;
+  WINDOWS.forEach((window) => {
+    windows[window] = { window, datePreset: DATE_PRESET_BY_WINDOW[window], totals: { ...EMPTY_TOTALS }, campaigns: [] };
+  });
+  return { fetchedAt: new Date().toISOString(), accountId, windows };
+}
+
+/** Fetches 7/14/30-day windows for an ad account in parallel, so every client gets a short/medium/long-term read. */
+export async function fetchAccountSnapshot(accountId: string): Promise<AccountSnapshot> {
   if (!accountId) {
     throw new Error("accountId is required");
   }
 
-  const [insightsRes, previousRes, campaignsRes] = await Promise.all([
-    metaFetch<{ data: RawInsightRow[] }>(`/${accountId}/insights`, {
-      level: "campaign",
-      date_preset: datePreset,
-      fields: INSIGHT_FIELDS,
-    }),
-    metaFetch<{ data: RawInsightRow[] }>(`/${accountId}/insights`, {
-      level: "campaign",
-      date_preset: "last_7d",
-      fields: INSIGHT_FIELDS,
-    }),
+  const [insightsByWindow, campaignsRes] = await Promise.all([
+    Promise.all(
+      WINDOWS.map((window) =>
+        metaFetch<{ data: RawInsightRow[] }>(`/${accountId}/insights`, {
+          level: "campaign",
+          date_preset: DATE_PRESET_BY_WINDOW[window],
+          fields: INSIGHT_FIELDS,
+        })
+      )
+    ),
     metaFetch<{ data: RawCampaign[] }>(`/${accountId}/campaigns`, {
       fields: "id,status",
       limit: "200",
@@ -168,15 +197,21 @@ export async function fetchAccountSnapshot(
   ]);
 
   const statusByCampaignId = new Map(campaignsRes.data.map((c) => [c.id, c.status]));
-  const campaigns = rowsToCampaigns(insightsRes.data, statusByCampaignId);
-  const previousCampaigns = rowsToCampaigns(previousRes.data, statusByCampaignId);
+
+  const windows = {} as Record<Window, WindowSnapshot>;
+  WINDOWS.forEach((window, i) => {
+    const campaigns = rowsToCampaigns(insightsByWindow[i].data, statusByCampaignId);
+    windows[window] = {
+      window,
+      datePreset: DATE_PRESET_BY_WINDOW[window],
+      totals: totalsFromCampaigns(campaigns),
+      campaigns,
+    };
+  });
 
   return {
     fetchedAt: new Date().toISOString(),
     accountId,
-    datePreset,
-    totals: totalsFromCampaigns(campaigns),
-    previousPeriodTotals: totalsFromCampaigns(previousCampaigns),
-    campaigns,
+    windows,
   };
 }

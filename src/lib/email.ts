@@ -1,9 +1,11 @@
 import nodemailer from "nodemailer";
+import { WINDOWS } from "./meta";
 import type { DailyReport } from "./types";
 
 const severityRank: Record<string, number> = { critical: 0, warning: 1, info: 2 };
 const healthColor: Record<string, string> = { critical: "#dc2626", warning: "#d97706", good: "#16a34a" };
 const healthLabel: Record<string, string> = { critical: "Needs attention", warning: "Watch", good: "Healthy" };
+const windowLabel: Record<string, string> = { "7d": "7 days", "14d": "14 days", "30d": "30 days" };
 
 function escapeHtml(s: string): string {
   return s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]!));
@@ -16,9 +18,6 @@ function currency(n: number) {
 function renderClientSection(entry: DailyReport["clients"][number]): string {
   const { clientName, healthStatus, summary, keyNotes, flags, optimizations, snapshot } = entry;
   const sortedFlags = [...flags].sort((a, b) => severityRank[a.severity] - severityRank[b.severity]);
-  const spendDelta = snapshot.previousPeriodTotals.spend > 0
-    ? ((snapshot.totals.spend - snapshot.previousPeriodTotals.spend / 7) / (snapshot.previousPeriodTotals.spend / 7)) * 100
-    : 0;
 
   return `
   <tr><td style="padding:28px 0 0 0;border-top:1px solid #e4e4e7;">
@@ -32,23 +31,26 @@ function renderClientSection(entry: DailyReport["clients"][number]): string {
       </tr>
     </table>
     <p style="margin:10px 0 12px 0;font-size:13px;color:#3f3f46;line-height:1.5;">${escapeHtml(summary)}</p>
-    <table role="presentation" width="100%" style="margin-bottom:12px;">
-      <tr style="font-size:12px;color:#71717a;">
-        <td>Spend (${escapeHtml(snapshot.datePreset)})</td>
-        <td>Conversions</td>
-        <td>CTR</td>
-        <td>CPC</td>
-        <td>ROAS</td>
-        <td>vs. 7d avg/day</td>
+    <table role="presentation" width="100%" style="margin-bottom:12px;border-collapse:collapse;">
+      <tr style="font-size:11px;color:#71717a;">
+        <td style="padding:2px 8px 2px 0;"></td>
+        <td style="padding:2px 8px;">Spend</td>
+        <td style="padding:2px 8px;">Conversions</td>
+        <td style="padding:2px 8px;">CTR</td>
+        <td style="padding:2px 8px;">CPC</td>
+        <td style="padding:2px 8px;">ROAS</td>
       </tr>
-      <tr style="font-size:13px;font-weight:600;color:#18181b;">
-        <td>${currency(snapshot.totals.spend)}</td>
-        <td>${Math.round(snapshot.totals.conversions)}</td>
-        <td>${snapshot.totals.ctr.toFixed(2)}%</td>
-        <td>${currency(snapshot.totals.cpc)}</td>
-        <td>${snapshot.totals.roas.toFixed(2)}x</td>
-        <td style="color:${spendDelta < -20 ? "#dc2626" : spendDelta > 20 ? "#16a34a" : "#71717a"};">${spendDelta >= 0 ? "+" : ""}${spendDelta.toFixed(0)}%</td>
-      </tr>
+      ${WINDOWS.map((w) => {
+        const t = snapshot.windows[w].totals;
+        return `<tr style="font-size:12px;color:#18181b;border-top:1px solid #f4f4f5;">
+          <td style="padding:3px 8px 3px 0;font-weight:600;color:#71717a;">${windowLabel[w]}</td>
+          <td style="padding:3px 8px;">${currency(t.spend)}</td>
+          <td style="padding:3px 8px;">${Math.round(t.conversions)}</td>
+          <td style="padding:3px 8px;">${t.ctr.toFixed(2)}%</td>
+          <td style="padding:3px 8px;">${currency(t.cpc)}</td>
+          <td style="padding:3px 8px;">${t.roas.toFixed(2)}x</td>
+        </tr>`;
+      }).join("")}
     </table>
     ${
       sortedFlags.length
@@ -56,7 +58,7 @@ function renderClientSection(entry: DailyReport["clients"][number]): string {
       ${sortedFlags
         .map(
           (f) =>
-            `<div style="font-size:13px;color:#3f3f46;padding:4px 0;"><b style="color:${healthColor[f.severity === "critical" ? "critical" : f.severity === "warning" ? "warning" : "good"] || "#3f3f46"};">${escapeHtml(f.title)}</b> — ${escapeHtml(f.detail)}</div>`
+            `<div style="font-size:13px;color:#3f3f46;padding:4px 0;"><b style="color:${healthColor[f.severity] || "#3f3f46"};">${escapeHtml(f.title)}</b> — ${escapeHtml(f.detail)}</div>`
         )
         .join("")}</div>`
         : ""
@@ -98,7 +100,7 @@ export function renderDailyReportHtml(report: DailyReport): string {
 <table role="presentation" width="640" style="background:#ffffff;border-radius:12px;padding:32px;">
 <tr><td>
   <div style="font-size:20px;font-weight:700;color:#18181b;">Daily Ads Health Check</div>
-  <div style="font-size:13px;color:#71717a;margin-top:2px;">${dateStr} · ${report.clients.length} accounts${
+  <div style="font-size:13px;color:#71717a;margin-top:2px;">${dateStr} · ${report.clients.length} accounts · 7/14/30-day trend${
     critical ? ` · <span style="color:#dc2626;font-weight:600;">${critical} need attention</span>` : ""
   }${warning ? ` · <span style="color:#d97706;font-weight:600;">${warning} to watch</span>` : ""}</div>
 </td></tr>
