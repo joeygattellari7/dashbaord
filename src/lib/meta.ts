@@ -17,20 +17,25 @@ export interface CampaignInsight {
   roas: number;
 }
 
+export interface AccountTotals {
+  spend: number;
+  impressions: number;
+  clicks: number;
+  ctr: number;
+  cpc: number;
+  cpm: number;
+  reach: number;
+  conversions: number;
+  roas: number;
+}
+
 export interface AccountSnapshot {
   fetchedAt: string;
   accountId: string;
-  totals: {
-    spend: number;
-    impressions: number;
-    clicks: number;
-    ctr: number;
-    cpc: number;
-    cpm: number;
-    reach: number;
-    conversions: number;
-    roas: number;
-  };
+  datePreset: string;
+  totals: AccountTotals;
+  /** Same totals shape, trailing 7 days, for trend comparison in the daily report. */
+  previousPeriodTotals: AccountTotals;
   campaigns: CampaignInsight[];
 }
 
@@ -66,7 +71,7 @@ async function metaFetch<T>(path: string, params: Record<string, string>): Promi
   const res = await fetch(url.toString(), { cache: "no-store" });
   if (!res.ok) {
     const body = await res.text();
-    throw new Error(`Meta API error (${res.status}): ${body}`);
+    throw new Error(`Meta API error (${res.status}) for ${path}: ${body}`);
   }
   return res.json() as Promise<T>;
 }
@@ -90,27 +95,8 @@ interface RawCampaign {
   status: string;
 }
 
-export async function fetchAccountSnapshot(): Promise<AccountSnapshot> {
-  const accountId = process.env.META_AD_ACCOUNT_ID;
-  if (!accountId) {
-    throw new Error("META_AD_ACCOUNT_ID is not configured");
-  }
-
-  const [insightsRes, campaignsRes] = await Promise.all([
-    metaFetch<{ data: RawInsightRow[] }>(`/${accountId}/insights`, {
-      level: "campaign",
-      date_preset: "today",
-      fields: "campaign_id,campaign_name,spend,impressions,clicks,ctr,cpc,cpm,reach,actions,action_values",
-    }),
-    metaFetch<{ data: RawCampaign[] }>(`/${accountId}/campaigns`, {
-      fields: "id,status",
-      limit: "200",
-    }),
-  ]);
-
-  const statusByCampaignId = new Map(campaignsRes.data.map((c) => [c.id, c.status]));
-
-  const campaigns: CampaignInsight[] = insightsRes.data.map((row) => {
+function rowsToCampaigns(rows: RawInsightRow[], statusByCampaignId: Map<string, string>): CampaignInsight[] {
+  return rows.map((row) => {
     const conversions = extractActionValue(row.actions, "purchase") || extractActionValue(row.actions, "lead");
     const conversionValue = extractActionSpendValue(row.action_values, "purchase");
     const spend = num(row.spend);
@@ -130,7 +116,9 @@ export async function fetchAccountSnapshot(): Promise<AccountSnapshot> {
       roas: spend > 0 ? conversionValue / spend : 0,
     };
   });
+}
 
+function totalsFromCampaigns(campaigns: CampaignInsight[]): AccountTotals {
   const totals = campaigns.reduce(
     (acc, c) => {
       acc.spend += c.spend;
@@ -144,18 +132,51 @@ export async function fetchAccountSnapshot(): Promise<AccountSnapshot> {
   );
 
   return {
+    ...totals,
+    ctr: totals.impressions > 0 ? (totals.clicks / totals.impressions) * 100 : 0,
+    cpc: totals.clicks > 0 ? totals.spend / totals.clicks : 0,
+    cpm: totals.impressions > 0 ? (totals.spend / totals.impressions) * 1000 : 0,
+    roas: totals.spend > 0 ? campaigns.reduce((sum, c) => sum + c.roas * c.spend, 0) / totals.spend : 0,
+  };
+}
+
+const INSIGHT_FIELDS = "campaign_id,campaign_name,spend,impressions,clicks,ctr,cpc,cpm,reach,actions,action_values";
+
+export async function fetchAccountSnapshot(
+  accountId: string,
+  datePreset: string = "yesterday"
+): Promise<AccountSnapshot> {
+  if (!accountId) {
+    throw new Error("accountId is required");
+  }
+
+  const [insightsRes, previousRes, campaignsRes] = await Promise.all([
+    metaFetch<{ data: RawInsightRow[] }>(`/${accountId}/insights`, {
+      level: "campaign",
+      date_preset: datePreset,
+      fields: INSIGHT_FIELDS,
+    }),
+    metaFetch<{ data: RawInsightRow[] }>(`/${accountId}/insights`, {
+      level: "campaign",
+      date_preset: "last_7d",
+      fields: INSIGHT_FIELDS,
+    }),
+    metaFetch<{ data: RawCampaign[] }>(`/${accountId}/campaigns`, {
+      fields: "id,status",
+      limit: "200",
+    }),
+  ]);
+
+  const statusByCampaignId = new Map(campaignsRes.data.map((c) => [c.id, c.status]));
+  const campaigns = rowsToCampaigns(insightsRes.data, statusByCampaignId);
+  const previousCampaigns = rowsToCampaigns(previousRes.data, statusByCampaignId);
+
+  return {
     fetchedAt: new Date().toISOString(),
     accountId,
-    totals: {
-      ...totals,
-      ctr: totals.impressions > 0 ? (totals.clicks / totals.impressions) * 100 : 0,
-      cpc: totals.clicks > 0 ? totals.spend / totals.clicks : 0,
-      cpm: totals.impressions > 0 ? (totals.spend / totals.impressions) * 1000 : 0,
-      roas:
-        totals.spend > 0
-          ? campaigns.reduce((sum, c) => sum + c.roas * c.spend, 0) / totals.spend
-          : 0,
-    },
+    datePreset,
+    totals: totalsFromCampaigns(campaigns),
+    previousPeriodTotals: totalsFromCampaigns(previousCampaigns),
     campaigns,
   };
 }

@@ -1,4 +1,5 @@
 import { fetchAccountSnapshot } from "@/lib/meta";
+import { getClients } from "@/lib/clients";
 
 export const dynamic = "force-dynamic";
 
@@ -17,8 +18,14 @@ export async function GET() {
 
       const poll = async () => {
         try {
-          const snapshot = await fetchAccountSnapshot();
-          send("snapshot", snapshot);
+          const clients = getClients();
+          const snapshots = await Promise.all(
+            clients.map(async (client) => ({
+              client,
+              snapshot: await fetchAccountSnapshot(client.metaAdAccountId),
+            }))
+          );
+          send("snapshot", { clients: snapshots });
         } catch (err) {
           send("error", { message: err instanceof Error ? err.message : "Unknown error" });
         }
