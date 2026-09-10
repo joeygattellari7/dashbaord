@@ -16,8 +16,8 @@ export const CLIENTS: ClientConfig[] = [
   //
   // Example:
   // {
-  //   slug: "acme",
-  //   name: "Acme Corp",
+  //   slug: "QKI",
+  //   name: "Quantum Key Institute",
   //   platforms: ["meta", "tiktok", "google", "hyros"],
   // },
 ];
