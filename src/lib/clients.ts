@@ -8,18 +8,11 @@ export interface ClientConfig {
 }
 
 export const CLIENTS: ClientConfig[] = [
-  // Add your clients here. Credentials are read from env vars:
-  //   Meta:    CLIENT_{SLUG}_META_ACCESS_TOKEN, CLIENT_{SLUG}_META_AD_ACCOUNT_ID
-  //   TikTok:  CLIENT_{SLUG}_TIKTOK_ACCESS_TOKEN, CLIENT_{SLUG}_TIKTOK_ADVERTISER_ID
-  //   Google:  CLIENT_{SLUG}_GOOGLE_DEVELOPER_TOKEN, CLIENT_{SLUG}_GOOGLE_CUSTOMER_ID, CLIENT_{SLUG}_GOOGLE_ACCESS_TOKEN
-  //   HYROS:   CLIENT_{SLUG}_HYROS_API_KEY
-  //
-  // Example:
-  // {
-  //   slug: "QKI",
-  //   name: "Quantum Key Institute",
-  //   platforms: ["meta", "tiktok", "google", "hyros"],
-  // },
+  {
+    slug: "qki",
+    name: "QKI",
+    platforms: ["meta"],
+  },
 ];
 
 export function getClient(slug: string): ClientConfig | undefined {
