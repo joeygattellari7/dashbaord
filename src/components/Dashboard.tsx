@@ -212,8 +212,11 @@ function HyrosLeadsView({ clientSlug, dateRange }: { clientSlug: string; dateRan
     setLoading(true);
     setError(null);
     fetch(`/api/${clientSlug}/hyros/leads?dateRange=${dateRange}`)
-      .then((r) => r.json())
-      .then((d) => { setLeads(d.leads || []); })
+      .then(async (r) => {
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.message || `HTTP ${r.status}`);
+        setLeads(d.leads || []);
+      })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
   }, [clientSlug, dateRange]);

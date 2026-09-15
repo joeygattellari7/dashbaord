@@ -51,24 +51,38 @@ function getDates(range: string): { fromDate: string; toDate: string } {
 }
 
 async function fetchLeadsPage(apiKey: string, body: object): Promise<{ leads: HyrosLead[]; nextPageId: string | null }> {
-  const paths = ["/get-leads", "/leads"];
-  for (const path of paths) {
-    const res = await fetch(`${BASE}${path}`, {
-      method: "POST",
-      headers: { "API-Key": apiKey, "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-      cache: "no-store",
-    });
+  const attempts: Array<{ method: string; path: string }> = [
+    { method: "POST", path: "/get-leads" },
+    { method: "GET",  path: "/get-leads" },
+    { method: "POST", path: "/leads" },
+    { method: "GET",  path: "/leads" },
+  ];
+
+  const errors: string[] = [];
+
+  for (const { method, path } of attempts) {
+    const url = new URL(`${BASE}${path}`);
+    const init: RequestInit = { method, headers: { "API-Key": apiKey }, cache: "no-store" };
+    if (method === "POST") {
+      (init.headers as Record<string, string>)["Content-Type"] = "application/json";
+      init.body = JSON.stringify(body);
+    } else {
+      // GET: put params in query string
+      const b = body as Record<string, string>;
+      for (const [k, v] of Object.entries(b)) if (v) url.searchParams.set(k, v);
+    }
+
+    const res = await fetch(url.toString(), init);
     if (res.ok) {
       const json = await res.json() as { result?: HyrosLead[]; data?: HyrosLead[]; nextPageId?: string | null };
       return { leads: json.result || json.data || [], nextPageId: json.nextPageId ?? null };
     }
-    if (res.status !== 404) {
-      const text = await res.text();
-      throw new Error(`HYROS ${res.status}: ${text.slice(0, 300)}`);
-    }
+    const text = await res.text();
+    errors.push(`${method} ${path} → ${res.status}: ${text.slice(0, 150)}`);
+    if (res.status !== 404) break;
   }
-  throw new Error("HYROS leads endpoint not found (404). Check your API key.");
+
+  throw new Error(`HYROS leads failed:\n${errors.join("\n")}`);
 }
 
 export async function GET(
