@@ -48,7 +48,7 @@ interface GaqlRow {
   };
 }
 
-export async function fetchGoogle(clientSlug: string): Promise<PlatformSnapshot> {
+export async function fetchGoogle(clientSlug: string, _dateRange = "today"): Promise<PlatformSnapshot> {
   const developerToken = clientEnv(clientSlug, "GOOGLE_DEVELOPER_TOKEN");
   const customerId = clientEnv(clientSlug, "GOOGLE_CUSTOMER_ID")?.replace(/-/g, "");
   const accessToken = clientEnv(clientSlug, "GOOGLE_ACCESS_TOKEN");

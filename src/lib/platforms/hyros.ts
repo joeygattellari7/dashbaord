@@ -34,7 +34,7 @@ interface HyrosReportResponse {
   data: { result: HyrosAdRow[] };
 }
 
-export async function fetchHyros(clientSlug: string): Promise<PlatformSnapshot> {
+export async function fetchHyros(clientSlug: string, _dateRange = "today"): Promise<PlatformSnapshot> {
   const apiKey = clientEnv(clientSlug, "HYROS_API_KEY");
   if (!apiKey) throw new Error(`HYROS credentials missing for client "${clientSlug}"`);
 

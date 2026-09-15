@@ -34,4 +34,6 @@ export interface PlatformSnapshot {
   extras?: Record<string, unknown>; // platform-specific bonus fields
 }
 
-export type PlatformFetcher = (clientSlug: string) => Promise<PlatformSnapshot>;
+export type DateRange = "today" | "last_7d" | "last_30d";
+
+export type PlatformFetcher = (clientSlug: string, dateRange?: DateRange) => Promise<PlatformSnapshot>;

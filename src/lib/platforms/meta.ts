@@ -43,7 +43,13 @@ interface RawInsightRow {
   action_values?: { action_type: string; value: string }[];
 }
 
-export async function fetchMeta(clientSlug: string): Promise<PlatformSnapshot> {
+const DATE_PRESET: Record<string, string> = {
+  today: "today",
+  last_7d: "last_7_days",
+  last_30d: "last_30_days",
+};
+
+export async function fetchMeta(clientSlug: string, dateRange = "today"): Promise<PlatformSnapshot> {
   const token = clientEnv(clientSlug, "META_ACCESS_TOKEN");
   const accountId = clientEnv(clientSlug, "META_AD_ACCOUNT_ID");
   if (!token || !accountId) throw new Error(`Meta credentials missing for client "${clientSlug}"`);
@@ -53,7 +59,7 @@ export async function fetchMeta(clientSlug: string): Promise<PlatformSnapshot> {
       `/${accountId}/insights`,
       {
         level: "campaign",
-        date_preset: "today",
+        date_preset: DATE_PRESET[dateRange] || "today",
         fields: "campaign_id,campaign_name,spend,impressions,clicks,ctr,cpc,cpm,reach,actions,action_values",
       },
       token

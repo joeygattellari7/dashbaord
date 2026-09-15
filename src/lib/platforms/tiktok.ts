@@ -46,7 +46,7 @@ interface TikTokMetricsRow {
   };
 }
 
-export async function fetchTikTok(clientSlug: string): Promise<PlatformSnapshot> {
+export async function fetchTikTok(clientSlug: string, _dateRange = "today"): Promise<PlatformSnapshot> {
   const token = clientEnv(clientSlug, "TIKTOK_ACCESS_TOKEN");
   const advertiserId = clientEnv(clientSlug, "TIKTOK_ADVERTISER_ID");
   if (!token || !advertiserId) throw new Error(`TikTok credentials missing for client "${clientSlug}"`);

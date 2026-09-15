@@ -9,6 +9,12 @@ interface ClientInfo {
   platforms: string[];
 }
 
+const DATE_RANGES = [
+  { value: "today", label: "Today" },
+  { value: "last_7d", label: "Last 7 Days" },
+  { value: "last_30d", label: "Last 30 Days" },
+];
+
 const PLATFORM_LABELS: Record<string, string> = {
   meta: "Meta Ads",
   tiktok: "TikTok Ads",
@@ -48,9 +54,11 @@ function MetricCard({ label, value, sub }: { label: string; value: string; sub?:
 function PlatformView({
   clientSlug,
   platform,
+  dateRange,
 }: {
   clientSlug: string;
   platform: string;
+  dateRange: string;
 }) {
   const [snapshot, setSnapshot] = useState<PlatformSnapshot | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -64,7 +72,7 @@ function PlatformView({
     setSnapshot(null);
     setError(null);
 
-    const source = new EventSource(`/api/${clientSlug}/${platform}/stream`);
+    const source = new EventSource(`/api/${clientSlug}/${platform}/stream?dateRange=${dateRange}`);
     sourceRef.current = source;
 
     source.addEventListener("snapshot", (e) => {
@@ -80,7 +88,7 @@ function PlatformView({
     });
 
     return () => { source.close(); };
-  }, [clientSlug, platform]);
+  }, [clientSlug, platform, dateRange]);
 
   if (error) {
     return (
@@ -179,6 +187,7 @@ export default function Dashboard({ clients }: { clients: ClientInfo[] }) {
   const [insightsLoading, setInsightsLoading] = useState(false);
   const [insightsError, setInsightsError] = useState<string | null>(null);
   const [showInsights, setShowInsights] = useState(false);
+  const [dateRange, setDateRange] = useState("today");
 
   const selectClient = (client: ClientInfo) => {
     setActiveClient(client);
@@ -256,25 +265,42 @@ export default function Dashboard({ clients }: { clients: ClientInfo[] }) {
             </button>
           </div>
 
-          {/* Platform tabs */}
-          <div className="mb-6 flex gap-1 border-b border-zinc-200 dark:border-zinc-800">
-            {activeClient.platforms.map((p) => (
-              <button
-                key={p}
-                onClick={() => setActivePlatform(p)}
-                className={`border-b-2 px-4 py-2.5 text-sm font-medium transition-colors ${
-                  activePlatform === p
-                    ? "border-zinc-900 text-zinc-900 dark:border-zinc-50 dark:text-zinc-50"
-                    : "border-transparent text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"
-                }`}
-              >
-                {PLATFORM_LABELS[p] || p}
-              </button>
-            ))}
+          {/* Platform tabs + date range */}
+          <div className="mb-6 flex items-center justify-between border-b border-zinc-200 dark:border-zinc-800">
+            <div className="flex gap-1">
+              {activeClient.platforms.map((p) => (
+                <button
+                  key={p}
+                  onClick={() => setActivePlatform(p)}
+                  className={`border-b-2 px-4 py-2.5 text-sm font-medium transition-colors ${
+                    activePlatform === p
+                      ? "border-zinc-900 text-zinc-900 dark:border-zinc-50 dark:text-zinc-50"
+                      : "border-transparent text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"
+                  }`}
+                >
+                  {PLATFORM_LABELS[p] || p}
+                </button>
+              ))}
+            </div>
+            <div className="flex gap-1 pb-2">
+              {DATE_RANGES.map((dr) => (
+                <button
+                  key={dr.value}
+                  onClick={() => setDateRange(dr.value)}
+                  className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+                    dateRange === dr.value
+                      ? "bg-zinc-900 text-white dark:bg-zinc-50 dark:text-zinc-900"
+                      : "text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                  }`}
+                >
+                  {dr.label}
+                </button>
+              ))}
+            </div>
           </div>
 
           {activePlatform && (
-            <PlatformView clientSlug={activeClient.slug} platform={activePlatform} />
+            <PlatformView clientSlug={activeClient.slug} platform={activePlatform} dateRange={dateRange} />
           )}
 
           {insightsError && (

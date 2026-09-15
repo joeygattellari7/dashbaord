@@ -6,10 +6,11 @@ import type { PlatformId } from "@/lib/clients";
 export const dynamic = "force-dynamic";
 
 export async function GET(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ clientSlug: string; platform: string }> }
 ) {
   const { clientSlug, platform } = await params;
+  const dateRange = req.nextUrl.searchParams.get("dateRange") || "today";
 
   const client = getClient(clientSlug);
   if (!client) {
@@ -35,7 +36,7 @@ export async function GET(
 
       const poll = async () => {
         try {
-          const snapshot = await fetcher(clientSlug);
+          const snapshot = await fetcher(clientSlug, dateRange as import("@/lib/platforms/types").DateRange);
           send("snapshot", snapshot);
         } catch (err) {
           send("error", { message: err instanceof Error ? err.message : "Unknown error" });
