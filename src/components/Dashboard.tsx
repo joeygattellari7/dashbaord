@@ -174,6 +174,117 @@ function PlatformView({
       <p className="text-xs text-zinc-400">
         Last updated {new Date(snapshot.fetchedAt).toLocaleTimeString()}
       </p>
+
+      {platform === "hyros" && (
+        <div className="mt-6">
+          <h2 className="mb-3 text-base font-semibold text-zinc-900 dark:text-zinc-50">Leads / Customers</h2>
+          <HyrosLeadsView clientSlug={clientSlug} dateRange={dateRange} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+interface LeadRow {
+  id: string;
+  email: string;
+  name: string | null;
+  joinDate: string | null;
+  stage: string | null;
+  tags: string[];
+  sourceName: string | null;
+  sourceType: string | null;
+  adId: string | null;
+  campaignId: string | null;
+}
+
+function metaAdLink(adId: string) {
+  return `https://www.facebook.com/adsmanager/manage/ads?act=&selected_campaign_ids=${adId}`;
+}
+
+function HyrosLeadsView({ clientSlug, dateRange }: { clientSlug: string; dateRange: string }) {
+  const [leads, setLeads] = useState<LeadRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setLoading(true);
+    setError(null);
+    fetch(`/api/${clientSlug}/hyros/leads?dateRange=${dateRange}`)
+      .then((r) => r.json())
+      .then((d) => { setLeads(d.leads || []); })
+      .catch((e) => setError(e.message))
+      .finally(() => setLoading(false));
+  }, [clientSlug, dateRange]);
+
+  if (loading) {
+    return (
+      <div className="flex items-center gap-2 text-sm text-zinc-400">
+        <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-zinc-400" />
+        Loading leads...
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">
+        {error}
+      </div>
+    );
+  }
+
+  if (leads.length === 0) {
+    return <p className="text-sm text-zinc-400">No leads found for this period.</p>;
+  }
+
+  return (
+    <div className="overflow-x-auto rounded-xl border border-zinc-200 dark:border-zinc-800">
+      <table className="w-full text-sm">
+        <thead className="bg-zinc-50 text-left text-xs font-medium uppercase tracking-wide text-zinc-500 dark:bg-zinc-900">
+          <tr>
+            <th className="px-4 py-2.5">Email</th>
+            <th className="px-4 py-2.5">Name</th>
+            <th className="px-4 py-2.5">Date</th>
+            <th className="px-4 py-2.5">Stage</th>
+            <th className="px-4 py-2.5">Source</th>
+            <th className="px-4 py-2.5">Meta Ad</th>
+          </tr>
+        </thead>
+        <tbody>
+          {leads.map((lead) => (
+            <tr key={lead.id} className="border-t border-zinc-100 hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-900/50">
+              <td className="px-4 py-2.5 font-medium text-zinc-900 dark:text-zinc-50">{lead.email}</td>
+              <td className="px-4 py-2.5 text-zinc-500">{lead.name || "—"}</td>
+              <td className="px-4 py-2.5 text-zinc-500 whitespace-nowrap">
+                {lead.joinDate ? new Date(lead.joinDate).toLocaleDateString() : "—"}
+              </td>
+              <td className="px-4 py-2.5">
+                {lead.stage ? (
+                  <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-xs text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
+                    {lead.stage}
+                  </span>
+                ) : "—"}
+              </td>
+              <td className="px-4 py-2.5 text-zinc-500 max-w-[180px] truncate">
+                {lead.sourceName || <span className="italic text-zinc-400">Organic / Direct</span>}
+              </td>
+              <td className="px-4 py-2.5">
+                {lead.adId && lead.sourceType === "FACEBOOK" ? (
+                  <a
+                    href={metaAdLink(lead.adId)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="rounded bg-blue-50 px-2 py-0.5 text-xs font-mono text-blue-700 hover:bg-blue-100 dark:bg-blue-950 dark:text-blue-300"
+                  >
+                    {lead.adId}
+                  </a>
+                ) : "—"}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }
