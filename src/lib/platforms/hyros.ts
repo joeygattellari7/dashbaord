@@ -1,107 +1,78 @@
 import { clientEnv } from "@/lib/clients";
 import type { PlatformSnapshot } from "./types";
 
-const BASE_URL = "https://api.hyros.com/v1/api";
+const BASE = "https://api.hyros.com/v1/api";
 
 function num(v: unknown): number {
   const n = typeof v === "string" ? parseFloat(v) : typeof v === "number" ? v : 0;
   return Number.isFinite(n) ? n : 0;
 }
 
-function getDateRange(range: string): { startDate: string; endDate: string } {
+function getDates(range: string): { from_date: string; to_date: string } {
   const today = new Date();
-  const end = today.toISOString().slice(0, 10);
+  const to_date = today.toISOString().slice(0, 10);
   if (range === "last_7d") {
-    const start = new Date(today);
-    start.setDate(start.getDate() - 6);
-    return { startDate: start.toISOString().slice(0, 10), endDate: end };
+    const d = new Date(today); d.setDate(d.getDate() - 6);
+    return { from_date: d.toISOString().slice(0, 10), to_date };
   }
   if (range === "last_30d") {
-    const start = new Date(today);
-    start.setDate(start.getDate() - 29);
-    return { startDate: start.toISOString().slice(0, 10), endDate: end };
+    const d = new Date(today); d.setDate(d.getDate() - 29);
+    return { from_date: d.toISOString().slice(0, 10), to_date };
   }
-  return { startDate: end, endDate: end };
-}
-
-interface HyrosRow {
-  id: string;
-  name: string;
-  COST?: number;
-  REVENUE?: number;
-  SALES?: number;
-  LEADS?: number;
-  ROAS?: number;
-}
-
-async function tryEndpoint(url: string, apiKey: string, body: object): Promise<HyrosRow[] | null> {
-  try {
-    const res = await fetch(url, {
-      method: "POST",
-      headers: { "API-Key": apiKey, "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-      cache: "no-store",
-    });
-    if (!res.ok) return null;
-    const json = await res.json() as { result?: HyrosRow[]; data?: HyrosRow[] };
-    return json.result || json.data || null;
-  } catch {
-    return null;
-  }
+  return { from_date: to_date, to_date };
 }
 
 export async function fetchHyros(clientSlug: string, range = "today"): Promise<PlatformSnapshot> {
   const apiKey = clientEnv(clientSlug, "HYROS_API_KEY");
   if (!apiKey) throw new Error(`HYROS credentials missing for client "${clientSlug}"`);
 
-  const { startDate, endDate } = getDateRange(range);
+  const { from_date, to_date } = getDates(range);
 
-  const body = {
-    attributionModel: "LAST_CLICK",
-    startDate,
-    endDate,
-    level: "FACEBOOK_CAMPAIGN",
-    fields: ["NAME", "COST", "REVENUE", "SALES", "LEADS", "ROAS"],
-    ids: ["1604914593699249"],
-    isAdAccountId: true,
-    sourceConfiguration: "ALL_SOURCES",
-  };
+  // Try snake_case GET endpoint (original HYROS REST API style)
+  const url = new URL(`${BASE}/attribution/report`);
+  url.searchParams.set("from_date", from_date);
+  url.searchParams.set("to_date", to_date);
+  url.searchParams.set("breakdown", "campaign");
+  url.searchParams.set("attribution_model", "last_click");
 
-  // Try known endpoint variations
-  const endpoints = [
-    `${BASE_URL}/ads/get-ads-report`,
-    `${BASE_URL}/ads/get-attributed-ads`,
-    `${BASE_URL}/attribution/report`,
-  ];
+  const res = await fetch(url.toString(), {
+    headers: { "API-Key": apiKey },
+    cache: "no-store",
+  });
 
-  let rows: HyrosRow[] | null = null;
-  let lastError = "";
+  if (!res.ok) {
+    // Try alternate path
+    const url2 = new URL(`${BASE}/ads/report`);
+    url2.searchParams.set("from_date", from_date);
+    url2.searchParams.set("to_date", to_date);
+    url2.searchParams.set("breakdown", "campaign");
 
-  for (const endpoint of endpoints) {
-    const res = await fetch(endpoint, {
-      method: "POST",
-      headers: { "API-Key": apiKey, "Content-Type": "application/json" },
-      body: JSON.stringify(body),
+    const res2 = await fetch(url2.toString(), {
+      headers: { "API-Key": apiKey },
       cache: "no-store",
     });
-    if (res.ok) {
-      const json = await res.json() as { result?: HyrosRow[]; data?: HyrosRow[] };
-      rows = json.result || json.data || [];
-      break;
+
+    if (!res2.ok) {
+      throw new Error(`HYROS API ${res2.status}: ${await res2.text()}`);
     }
-    lastError = `HYROS API ${res.status}: ${await res.text()}`;
+
+    const json2 = await res2.json() as { data?: { result?: unknown[] }; result?: unknown[] };
+    return buildSnapshot(json2.data?.result || json2.result || []);
   }
 
-  if (rows === null) throw new Error(lastError || "HYROS API unreachable");
+  const json = await res.json() as { data?: { result?: unknown[] }; result?: unknown[] };
+  return buildSnapshot(json.data?.result || json.result || []);
+}
 
-  const campaigns = rows.map((row) => {
-    const spend = num(row.COST);
-    const revenue = num(row.REVENUE);
-    const conversions = num(row.SALES) || num(row.LEADS);
-    const roas = spend > 0 ? revenue / spend : num(row.ROAS);
+function buildSnapshot(rows: unknown[]): PlatformSnapshot {
+  const campaigns = (rows as Record<string, unknown>[]).map((row) => {
+    const spend = num(row.spend ?? row.COST ?? row.cost);
+    const revenue = num(row.revenue ?? row.REVENUE);
+    const conversions = num(row.sales ?? row.SALES) || num(row.leads ?? row.LEADS);
+    const roas = spend > 0 ? revenue / spend : num(row.roas ?? row.ROAS);
     return {
-      id: row.id,
-      name: row.name || row.id,
+      id: String(row.ad_id ?? row.id ?? ""),
+      name: String(row.ad_name ?? row.name ?? row.source_name ?? "Unknown"),
       status: "ACTIVE",
       spend,
       impressions: 0,
@@ -135,6 +106,5 @@ export async function fetchHyros(clientSlug: string, range = "today"): Promise<P
       roas: t.spend > 0 ? campaigns.reduce((s, c) => s + c.roas * c.spend, 0) / t.spend : 0,
     },
     campaigns,
-    extras: { note: "HYROS attribution — revenue and sales are attributed, not click-based" },
   };
 }
