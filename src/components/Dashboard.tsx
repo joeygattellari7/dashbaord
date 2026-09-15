@@ -193,13 +193,14 @@ interface LeadRow {
   stage: string | null;
   tags: string[];
   sourceName: string | null;
-  sourceType: string | null;
+  adName: string | null;
   adId: string | null;
-  campaignId: string | null;
+  platform: string | null;
+  organic: boolean;
 }
 
 function metaAdLink(adId: string) {
-  return `https://www.facebook.com/adsmanager/manage/ads?act=&selected_campaign_ids=${adId}`;
+  return `https://www.facebook.com/adsmanager/manage/ads?selected_adset_ids=${adId}`;
 }
 
 function HyrosLeadsView({ clientSlug, dateRange }: { clientSlug: string; dateRange: string }) {
@@ -247,8 +248,9 @@ function HyrosLeadsView({ clientSlug, dateRange }: { clientSlug: string; dateRan
             <th className="px-4 py-2.5">Name</th>
             <th className="px-4 py-2.5">Date</th>
             <th className="px-4 py-2.5">Stage</th>
-            <th className="px-4 py-2.5">Source</th>
-            <th className="px-4 py-2.5">Meta Ad</th>
+            <th className="px-4 py-2.5">Campaign</th>
+            <th className="px-4 py-2.5">Ad</th>
+            <th className="px-4 py-2.5">Meta Link</th>
           </tr>
         </thead>
         <tbody>
@@ -269,15 +271,18 @@ function HyrosLeadsView({ clientSlug, dateRange }: { clientSlug: string; dateRan
               <td className="px-4 py-2.5 text-zinc-500 max-w-[180px] truncate">
                 {lead.sourceName || <span className="italic text-zinc-400">Organic / Direct</span>}
               </td>
+              <td className="px-4 py-2.5 text-zinc-500 max-w-[160px] truncate">
+                {lead.adName || "—"}
+              </td>
               <td className="px-4 py-2.5">
-                {lead.adId && lead.sourceType === "FACEBOOK" ? (
+                {lead.adId && lead.platform === "FACEBOOK" ? (
                   <a
                     href={metaAdLink(lead.adId)}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="rounded bg-blue-50 px-2 py-0.5 text-xs font-mono text-blue-700 hover:bg-blue-100 dark:bg-blue-950 dark:text-blue-300"
+                    className="rounded bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700 hover:bg-blue-100 dark:bg-blue-950 dark:text-blue-300"
                   >
-                    {lead.adId}
+                    View in Meta ↗
                   </a>
                 ) : "—"}
               </td>

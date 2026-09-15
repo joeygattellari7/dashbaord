@@ -5,69 +5,35 @@ export const dynamic = "force-dynamic";
 
 const BASE = "https://api.hyros.com/v1/api";
 
+interface AdSource {
+  adSourceId: string;
+  adAccountId: string;
+  platform: string;
+}
+
+interface SourceLinkAd {
+  name: string;
+  adSourceId: string;
+}
+
+interface LeadSource {
+  name: string;
+  adSource?: AdSource;
+  sourceLinkAd?: SourceLinkAd;
+  category?: { name: string };
+  organic: boolean;
+}
+
 interface HyrosLead {
   id: string;
   email: string;
-  joinDate?: string;
-  currentStage?: string;
-  tags?: string[];
-  name?: string;
   firstName?: string;
   lastName?: string;
-}
-
-interface HyrosClick {
-  leadId?: string;
-  email?: string;
-  url?: string;
-  sourceId?: string;
-  sourceName?: string;
-  integrationType?: string;
-  clickDate?: string;
-  adId?: string;
-  campaignId?: string;
-}
-
-async function hyrosPost(path: string, apiKey: string, body: unknown) {
-  const res = await fetch(`${BASE}${path}`, {
-    method: "POST",
-    headers: { "API-Key": apiKey, "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-    cache: "no-store",
-  });
-  return res;
-}
-
-async function fetchLeads(apiKey: string, fromDate: string, toDate: string): Promise<HyrosLead[]> {
-  const body = { fromDate, toDate, pageSize: 100 };
-  const paths = ["/get-leads", "/leads"];
-  for (const path of paths) {
-    const res = await hyrosPost(path, apiKey, body);
-    if (res.ok) {
-      const json = await res.json() as { data?: HyrosLead[]; result?: HyrosLead[]; leads?: HyrosLead[] };
-      return json.data || json.result || json.leads || [];
-    }
-    if (res.status !== 404) {
-      const text = await res.text();
-      throw new Error(`HYROS leads ${res.status}: ${text.slice(0, 200)}`);
-    }
-  }
-  throw new Error("HYROS leads endpoint not found");
-}
-
-async function fetchClicks(apiKey: string, leadIds: string[]): Promise<HyrosClick[]> {
-  if (leadIds.length === 0) return [];
-  const body = { leadIds, pageSize: 250 };
-  const paths = ["/get-lead-clicks", "/lead-clicks", "/leads/clicks"];
-  for (const path of paths) {
-    const res = await hyrosPost(path, apiKey, body);
-    if (res.ok) {
-      const json = await res.json() as { data?: HyrosClick[]; result?: HyrosClick[]; clicks?: HyrosClick[] };
-      return json.data || json.result || json.clicks || [];
-    }
-    if (res.status !== 404) break;
-  }
-  return []; // clicks are best-effort — don't fail the whole request
+  creationDate?: string;
+  currentStage?: string;
+  tags?: string[];
+  firstSource?: LeadSource;
+  lastSource?: LeadSource;
 }
 
 function getDates(range: string): { fromDate: string; toDate: string } {
@@ -82,6 +48,27 @@ function getDates(range: string): { fromDate: string; toDate: string } {
     return { fromDate: d.toISOString().slice(0, 10), toDate };
   }
   return { fromDate: toDate, toDate };
+}
+
+async function fetchLeadsPage(apiKey: string, body: object): Promise<{ leads: HyrosLead[]; nextPageId: string | null }> {
+  const paths = ["/get-leads", "/leads"];
+  for (const path of paths) {
+    const res = await fetch(`${BASE}${path}`, {
+      method: "POST",
+      headers: { "API-Key": apiKey, "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      cache: "no-store",
+    });
+    if (res.ok) {
+      const json = await res.json() as { result?: HyrosLead[]; data?: HyrosLead[]; nextPageId?: string | null };
+      return { leads: json.result || json.data || [], nextPageId: json.nextPageId ?? null };
+    }
+    if (res.status !== 404) {
+      const text = await res.text();
+      throw new Error(`HYROS ${res.status}: ${text.slice(0, 300)}`);
+    }
+  }
+  throw new Error("HYROS leads endpoint not found (404). Check your API key.");
 }
 
 export async function GET(
@@ -99,37 +86,31 @@ export async function GET(
 
   const { fromDate, toDate } = getDates(dateRange);
 
-  const leads = await fetchLeads(apiKey, fromDate, toDate);
+  try {
+    const { leads, nextPageId } = await fetchLeadsPage(apiKey, { fromDate, toDate, pageSize: 100 });
 
-  // Fetch clicks for up to 50 leads to get Meta ad attribution
-  const leadIds = leads.slice(0, 50).map((l) => l.id).filter(Boolean);
-  const clicks = await fetchClicks(apiKey, leadIds);
+    const rows = leads.map((lead) => {
+      const src = lead.firstSource;
+      const adId = src?.adSource?.adSourceId ?? null;
+      const platform = src?.adSource?.platform ?? null;
+      const adName = src?.sourceLinkAd?.name ?? null;
+      return {
+        id: lead.id,
+        email: lead.email,
+        name: [lead.firstName, lead.lastName].filter(Boolean).join(" ") || null,
+        joinDate: lead.creationDate ?? null,
+        stage: lead.currentStage ?? null,
+        tags: lead.tags ?? [],
+        sourceName: src?.name ?? null,
+        adName,
+        adId,
+        platform,
+        organic: src?.organic ?? true,
+      };
+    });
 
-  // Build a map: leadId -> first paid click with a sourceId
-  const clickMap: Record<string, HyrosClick> = {};
-  for (const click of clicks) {
-    const lid = click.leadId;
-    if (!lid) continue;
-    if (!clickMap[lid] && click.sourceId) {
-      clickMap[lid] = click;
-    }
+    return Response.json({ leads: rows, fromDate, toDate, hasMore: !!nextPageId });
+  } catch (err) {
+    return Response.json({ message: err instanceof Error ? err.message : "Unknown error" }, { status: 500 });
   }
-
-  const rows = leads.map((lead) => {
-    const click = clickMap[lead.id];
-    return {
-      id: lead.id,
-      email: lead.email,
-      name: lead.name || [lead.firstName, lead.lastName].filter(Boolean).join(" ") || null,
-      joinDate: lead.joinDate,
-      stage: lead.currentStage || null,
-      tags: lead.tags || [],
-      sourceName: click?.sourceName || null,
-      sourceType: click?.integrationType || null,
-      adId: click?.adId || click?.sourceId || null,
-      campaignId: click?.campaignId || null,
-    };
-  });
-
-  return Response.json({ leads: rows, fromDate, toDate });
 }
