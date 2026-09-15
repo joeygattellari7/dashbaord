@@ -11,7 +11,7 @@ export const CLIENTS: ClientConfig[] = [
   {
     slug: "qki",
     name: "QKI",
-    platforms: ["meta"],
+    platforms: ["meta", "hyros"],
   },
 ];
 
