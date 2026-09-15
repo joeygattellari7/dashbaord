@@ -8,74 +8,81 @@ function num(v: unknown): number {
   return Number.isFinite(n) ? n : 0;
 }
 
-function getDates(range: string): { from_date: string; to_date: string } {
+function getDates(range: string): { startDate: string; endDate: string } {
   const today = new Date();
-  const to_date = today.toISOString().slice(0, 10);
+  const endDate = today.toISOString().slice(0, 10);
   if (range === "last_7d") {
     const d = new Date(today); d.setDate(d.getDate() - 6);
-    return { from_date: d.toISOString().slice(0, 10), to_date };
+    return { startDate: d.toISOString().slice(0, 10), endDate };
   }
   if (range === "last_30d") {
     const d = new Date(today); d.setDate(d.getDate() - 29);
-    return { from_date: d.toISOString().slice(0, 10), to_date };
+    return { startDate: d.toISOString().slice(0, 10), endDate };
   }
-  return { from_date: to_date, to_date };
+  return { startDate: endDate, endDate };
 }
 
-async function hyrosGet(path: string, apiKey: string, params: Record<string, string>) {
-  const url = new URL(`${BASE}${path}`);
-  for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
-  const res = await fetch(url.toString(), {
-    headers: { "API-Key": apiKey },
+async function hyrosPost(path: string, apiKey: string, body: unknown) {
+  return fetch(`${BASE}${path}`, {
+    method: "POST",
+    headers: { "API-Key": apiKey, "Content-Type": "application/json" },
+    body: JSON.stringify(body),
     cache: "no-store",
   });
-  return res;
 }
 
 export async function fetchHyros(clientSlug: string, range = "today"): Promise<PlatformSnapshot> {
   const apiKey = clientEnv(clientSlug, "HYROS_API_KEY");
   if (!apiKey) throw new Error(`HYROS credentials missing for client "${clientSlug}"`);
 
-  const { from_date, to_date } = getDates(range);
-  const params = { from_date, to_date, breakdown: "campaign" };
+  const adAccountId = clientEnv(clientSlug, "HYROS_AD_ACCOUNT_ID");
 
-  // Try known HYROS REST endpoints in order
-  const paths = [
-    "/get-all-attributed-ads",
-    "/ads/get-all-attributed-ads",
-    "/attribution/get-report",
-    "/report/attribution",
-    "/ads/report",
+  const { startDate, endDate } = getDates(range);
+
+  // Try campaign-level attribution report (POST)
+  const reportBody = {
+    attributionModel: "LAST_CLICK",
+    startDate,
+    endDate,
+    fields: ["NAME", "COST", "REVENUE", "SALES", "LEADS", "ROAS", "CLICKS", "IMPRESSIONS"],
+    level: "FACEBOOK_CAMPAIGN",
+    sourceConfiguration: "ALL_SOURCES",
+    ...(adAccountId ? { ids: [adAccountId], isAdAccountId: true } : {}),
+  };
+
+  const endpoints = [
+    "/get-report",
     "/attribution/report",
+    "/report",
   ];
 
   let lastStatus = 0;
   let lastBody = "";
 
-  for (const path of paths) {
-    const res = await hyrosGet(path, apiKey, params);
+  for (const path of endpoints) {
+    const res = await hyrosPost(path, apiKey, reportBody);
     if (res.ok) {
-      const json = await res.json() as { data?: { result?: unknown[] }; result?: unknown[] };
-      const rows = json.data?.result || json.result || [];
+      const json = await res.json() as { data?: unknown[]; result?: unknown[]; items?: unknown[] };
+      const rows = json.data || json.result || json.items || [];
       return buildSnapshot(rows as Record<string, unknown>[]);
     }
     lastStatus = res.status;
     lastBody = await res.text();
-    if (lastStatus !== 404) break; // Non-404 error means we found the endpoint but something else is wrong
+    if (lastStatus !== 404) break;
   }
 
-  throw new Error(`HYROS API ${lastStatus}: ${lastBody}`);
+  throw new Error(`HYROS API ${lastStatus}: ${lastBody.slice(0, 200)}`);
 }
 
 function buildSnapshot(rows: Record<string, unknown>[]): PlatformSnapshot {
   const campaigns = rows.map((row) => {
-    const spend = num(row.spend ?? row.COST ?? row.cost);
-    const revenue = num(row.revenue ?? row.REVENUE);
-    const conversions = num(row.sales ?? row.SALES ?? row.leads ?? row.LEADS);
+    const spend = num(row.cost ?? row.COST ?? row.spend ?? row.adCost);
+    const revenue = num(row.revenue ?? row.REVENUE ?? row.totalRevenue);
+    const conversions = num(row.sales ?? row.SALES ?? row.leads ?? row.LEADS ?? row.conversions);
     const roas = spend > 0 ? revenue / spend : num(row.roas ?? row.ROAS);
     return {
-      id: String(row.ad_id ?? row.id ?? ""),
-      name: String(row.ad_name ?? row.name ?? row.source_name ?? "Unknown"),
+      id: String(row.id ?? row.ad_id ?? row.sourceId ?? ""),
+      name: String(row.name ?? row.NAME ?? row.ad_name ?? row.source_name ?? row.sourceName ?? "Unknown"),
       status: "ACTIVE",
       spend,
       impressions: 0,
