@@ -72,14 +72,14 @@ export async function GET(
           authorization_token: apiKey,
         },
       ],
-      tools: [{ type: "mcp", server_name: "HYROS" }],
+      tools: [{ type: "mcp_toolset", mcp_server_name: "HYROS" }],
       messages: [
         {
           role: "user",
-          content: `Fetch leads from HYROS for the date range ${fromDate} to ${toDate} with pageSize 100. Return ONLY a raw JSON array of leads — no explanation, no markdown, no code fences. Each item must have: id, email, firstName, lastName, creationDate, currentStage, tags, firstSource (with name, adSource.adSourceId, adSource.platform, sourceLinkAd.name, organic).`,
+          content: `Use the hyros_get_leads tool to fetch leads from HYROS for the date range ${fromDate} to ${toDate} with pageSize 100. Return ONLY a raw JSON array of leads — no explanation, no markdown, no code fences. Each item must have: id, email, firstName, lastName, creationDate, currentStage, tags, firstSource (with name, adSource.adSourceId, adSource.platform, sourceLinkAd.name, organic).`,
         },
       ],
-      betas: ["mcp-client-2025-04-04"],
+      betas: ["mcp-client-2025-11-20"],
     });
 
     const text = response.content.find((b) => b.type === "text")?.text || "[]";
