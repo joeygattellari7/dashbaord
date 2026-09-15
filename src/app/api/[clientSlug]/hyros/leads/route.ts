@@ -1,40 +1,9 @@
 import type { NextRequest } from "next/server";
 import { getClient, clientEnv } from "@/lib/clients";
+import Anthropic from "@anthropic-ai/sdk";
 
 export const dynamic = "force-dynamic";
-
-const BASE = "https://api.hyros.com/v1/api";
-
-interface AdSource {
-  adSourceId: string;
-  adAccountId: string;
-  platform: string;
-}
-
-interface SourceLinkAd {
-  name: string;
-  adSourceId: string;
-}
-
-interface LeadSource {
-  name: string;
-  adSource?: AdSource;
-  sourceLinkAd?: SourceLinkAd;
-  category?: { name: string };
-  organic: boolean;
-}
-
-interface HyrosLead {
-  id: string;
-  email: string;
-  firstName?: string;
-  lastName?: string;
-  creationDate?: string;
-  currentStage?: string;
-  tags?: string[];
-  firstSource?: LeadSource;
-  lastSource?: LeadSource;
-}
+export const maxDuration = 60;
 
 function getDates(range: string): { fromDate: string; toDate: string } {
   const today = new Date();
@@ -50,39 +19,22 @@ function getDates(range: string): { fromDate: string; toDate: string } {
   return { fromDate: toDate, toDate };
 }
 
-async function fetchLeadsPage(apiKey: string, body: object): Promise<{ leads: HyrosLead[]; nextPageId: string | null }> {
-  const attempts: Array<{ method: string; path: string }> = [
-    { method: "POST", path: "/get-leads" },
-    { method: "GET",  path: "/get-leads" },
-    { method: "POST", path: "/leads" },
-    { method: "GET",  path: "/leads" },
-  ];
+interface LeadSource {
+  name?: string;
+  adSource?: { adSourceId?: string; platform?: string };
+  sourceLinkAd?: { name?: string; adSourceId?: string };
+  organic?: boolean;
+}
 
-  const errors: string[] = [];
-
-  for (const { method, path } of attempts) {
-    const url = new URL(`${BASE}${path}`);
-    const init: RequestInit = { method, headers: { "API-Key": apiKey }, cache: "no-store" };
-    if (method === "POST") {
-      (init.headers as Record<string, string>)["Content-Type"] = "application/json";
-      init.body = JSON.stringify(body);
-    } else {
-      // GET: put params in query string
-      const b = body as Record<string, string>;
-      for (const [k, v] of Object.entries(b)) if (v) url.searchParams.set(k, v);
-    }
-
-    const res = await fetch(url.toString(), init);
-    if (res.ok) {
-      const json = await res.json() as { result?: HyrosLead[]; data?: HyrosLead[]; nextPageId?: string | null };
-      return { leads: json.result || json.data || [], nextPageId: json.nextPageId ?? null };
-    }
-    const text = await res.text();
-    errors.push(`${method} ${path} → ${res.status}: ${text.slice(0, 150)}`);
-    if (res.status !== 404) break;
-  }
-
-  throw new Error(`HYROS leads failed:\n${errors.join("\n")}`);
+interface RawLead {
+  id?: string;
+  email?: string;
+  firstName?: string;
+  lastName?: string;
+  creationDate?: string;
+  currentStage?: string;
+  tags?: string[];
+  firstSource?: LeadSource;
 }
 
 export async function GET(
@@ -98,32 +50,61 @@ export async function GET(
   const apiKey = clientEnv(clientSlug, "HYROS_API_KEY");
   if (!apiKey) return Response.json({ message: "HYROS credentials missing" }, { status: 500 });
 
+  const anthropicKey = process.env.ANTHROPIC_API_KEY;
+  if (!anthropicKey) return Response.json({ message: "ANTHROPIC_API_KEY not set" }, { status: 500 });
+
   const { fromDate, toDate } = getDates(dateRange);
 
   try {
-    const { leads, nextPageId } = await fetchLeadsPage(apiKey, { fromDate, toDate, pageSize: 100 });
+    const anthropic = new Anthropic({ apiKey: anthropicKey });
 
-    const rows = leads.map((lead) => {
+    // Use Claude with HYROS MCP to fetch leads
+    const response = await (anthropic.beta.messages as unknown as {
+      create: (opts: unknown) => Promise<{ content: Array<{ type: string; text?: string }> }>;
+    }).create({
+      model: "claude-haiku-4-5-20251001",
+      max_tokens: 8096,
+      mcp_servers: [
+        {
+          type: "url",
+          url: "https://mcp.hyros.com/mcp",
+          name: "HYROS",
+          authorization_token: apiKey,
+        },
+      ],
+      tools: [{ type: "mcp", server_name: "HYROS" }],
+      messages: [
+        {
+          role: "user",
+          content: `Fetch leads from HYROS for the date range ${fromDate} to ${toDate} with pageSize 100. Return ONLY a raw JSON array of leads — no explanation, no markdown, no code fences. Each item must have: id, email, firstName, lastName, creationDate, currentStage, tags, firstSource (with name, adSource.adSourceId, adSource.platform, sourceLinkAd.name, organic).`,
+        },
+      ],
+      betas: ["mcp-client-2025-04-04"],
+    });
+
+    const text = response.content.find((b) => b.type === "text")?.text || "[]";
+    // Strip any accidental markdown fences
+    const clean = text.replace(/```json\n?|```\n?/g, "").trim();
+    const rawLeads: RawLead[] = JSON.parse(clean);
+
+    const leads = rawLeads.map((lead) => {
       const src = lead.firstSource;
-      const adId = src?.adSource?.adSourceId ?? null;
-      const platform = src?.adSource?.platform ?? null;
-      const adName = src?.sourceLinkAd?.name ?? null;
       return {
-        id: lead.id,
-        email: lead.email,
+        id: lead.id ?? "",
+        email: lead.email ?? "",
         name: [lead.firstName, lead.lastName].filter(Boolean).join(" ") || null,
         joinDate: lead.creationDate ?? null,
         stage: lead.currentStage ?? null,
         tags: lead.tags ?? [],
         sourceName: src?.name ?? null,
-        adName,
-        adId,
-        platform,
+        adName: src?.sourceLinkAd?.name ?? null,
+        adId: src?.adSource?.adSourceId ?? null,
+        platform: src?.adSource?.platform ?? null,
         organic: src?.organic ?? true,
       };
     });
 
-    return Response.json({ leads: rows, fromDate, toDate, hasMore: !!nextPageId });
+    return Response.json({ leads, fromDate, toDate });
   } catch (err) {
     return Response.json({ message: err instanceof Error ? err.message : "Unknown error" }, { status: 500 });
   }
