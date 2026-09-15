@@ -3,57 +3,82 @@ import type { PlatformSnapshot } from "./types";
 
 const BASE_URL = "https://api.hyros.com/v1/api";
 
-async function hyrosFetch<T>(path: string, apiKey: string, params: Record<string, string> = {}): Promise<T> {
-  const url = new URL(`${BASE_URL}${path}`);
-  for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
-  const res = await fetch(url.toString(), {
-    headers: { "API-Key": apiKey },
-    cache: "no-store",
-  });
-  if (!res.ok) throw new Error(`HYROS API ${res.status}: ${await res.text()}`);
-  return res.json() as Promise<T>;
-}
-
 function num(v: unknown): number {
   const n = typeof v === "string" ? parseFloat(v) : typeof v === "number" ? v : 0;
   return Number.isFinite(n) ? n : 0;
 }
 
-interface HyrosAdRow {
-  ad_id: string;
-  ad_name: string;
-  source_name: string;
-  revenue: number;
-  leads: number;
-  sales: number;
-  spend: number;
-  roas: number;
+function dateRange(range: string): { startDate: string; endDate: string } {
+  const today = new Date();
+  const end = today.toISOString().slice(0, 10);
+  if (range === "last_7d") {
+    const start = new Date(today);
+    start.setDate(start.getDate() - 6);
+    return { startDate: start.toISOString().slice(0, 10), endDate: end };
+  }
+  if (range === "last_30d") {
+    const start = new Date(today);
+    start.setDate(start.getDate() - 29);
+    return { startDate: start.toISOString().slice(0, 10), endDate: end };
+  }
+  return { startDate: end, endDate: end };
+}
+
+interface HyrosRow {
+  id: string;
+  name: string;
+  parentName?: string;
+  COST?: number;
+  REVENUE?: number;
+  SALES?: number;
+  LEADS?: number;
+  ROAS?: number;
 }
 
 interface HyrosReportResponse {
-  data: { result: HyrosAdRow[] };
+  data?: HyrosRow[];
+  result?: HyrosRow[];
 }
 
-export async function fetchHyros(clientSlug: string, _dateRange = "today"): Promise<PlatformSnapshot> {
+export async function fetchHyros(clientSlug: string, range = "today"): Promise<PlatformSnapshot> {
   const apiKey = clientEnv(clientSlug, "HYROS_API_KEY");
   if (!apiKey) throw new Error(`HYROS credentials missing for client "${clientSlug}"`);
 
-  const today = new Date().toISOString().slice(0, 10);
-  const report = await hyrosFetch<HyrosReportResponse>(
-    "/attribution/report",
-    apiKey,
-    { from_date: today, to_date: today, breakdown: "ad" }
-  );
+  const { startDate, endDate } = dateRange(range);
 
-  const rows = report.data?.result || [];
+  const body = {
+    attributionModel: "LAST_CLICK",
+    startDate,
+    endDate,
+    level: "FACEBOOK_CAMPAIGN",
+    fields: ["NAME", "COST", "REVENUE", "SALES", "LEADS", "ROAS"],
+    sourceConfiguration: "ALL_SOURCES",
+    isAdAccountId: false,
+  };
+
+  const res = await fetch(`${BASE_URL}/ads/get-attributed-ads`, {
+    method: "POST",
+    headers: {
+      "API-Key": apiKey,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+    cache: "no-store",
+  });
+
+  if (!res.ok) throw new Error(`HYROS API ${res.status}: ${await res.text()}`);
+
+  const json: HyrosReportResponse = await res.json();
+  const rows: HyrosRow[] = json.data || json.result || [];
 
   const campaigns = rows.map((row) => {
-    const spend = num(row.spend);
-    const conversions = num(row.sales);
-    const revenue = num(row.revenue);
+    const spend = num(row.COST);
+    const revenue = num(row.REVENUE);
+    const conversions = num(row.SALES) || num(row.LEADS);
+    const roas = spend > 0 ? revenue / spend : num(row.ROAS);
     return {
-      id: row.ad_id,
-      name: `${row.source_name}: ${row.ad_name}`,
+      id: row.id,
+      name: row.name || row.id,
       status: "ACTIVE",
       spend,
       impressions: 0,
@@ -64,7 +89,7 @@ export async function fetchHyros(clientSlug: string, _dateRange = "today"): Prom
       reach: 0,
       conversions,
       costPerConversion: conversions > 0 ? spend / conversions : 0,
-      roas: spend > 0 ? revenue / spend : num(row.roas),
+      roas,
     };
   });
 
@@ -87,6 +112,6 @@ export async function fetchHyros(clientSlug: string, _dateRange = "today"): Prom
       roas: t.spend > 0 ? campaigns.reduce((s, c) => s + c.roas * c.spend, 0) / t.spend : 0,
     },
     campaigns,
-    extras: { note: "HYROS attribution data — revenue and sales are attributed, not click-based" },
+    extras: { note: "HYROS attribution data — revenue and sales are attributed" },
   };
 }
