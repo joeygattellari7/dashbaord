@@ -1,9 +1,12 @@
 const pptxgen = require("pptxgenjs");
-const path = require("path");
 
-const BG   = "0B1929";
-const PP   = "Poppins";
+const BG    = "0B1929";
+const CARD  = "0F2236";
+const WHITE = "FFFFFF";
+const GREY  = "7A8FA8";
 const CORAL = "E8541C";
+const MUTED = "1E3A55";
+const PP    = "Poppins";
 
 const p = new pptxgen();
 p.defineLayout({ name:"WIDE", width:13.333, height:7.5 });
@@ -15,7 +18,38 @@ s.background = { color: BG };
 // gms logo
 s.addText("gms", { x:11.9, y:0.18, w:1.2, h:0.38, fontFace:PP, fontSize:16, bold:true, color:CORAL, align:"right", isTextBox:true, margin:0 });
 
-// embed the graphic — centred, full height minus margins
-s.addImage({ path: path.join(__dirname, "atv_graphic.png"), x:0.5, y:0.3, w:12.333, h:6.9 });
+// Section label
+s.addText("SECTION 04", { x:0.5, y:0.22, w:4, h:0.26, fontFace:PP, fontSize:10, bold:true, color:CORAL, charSpacing:1.5, isTextBox:true, margin:0 });
+
+// Headline
+s.addText("ADS DRIVE VOLUME,\nNOT SPEND SIZE.", { x:0.5, y:0.55, w:12, h:1.2, fontFace:PP, fontSize:42, bold:true, color:WHITE, isTextBox:true, margin:0, lineSpacingMultiple:1.05 });
+
+// Divider line
+s.addShape(p.ShapeType.rect, { x:0.5, y:1.9, w:12.3, h:0.04, fill:{ color:MUTED }, line:{ color:MUTED } });
+
+// ── LEFT card — ad-exposed ──
+s.addShape(p.ShapeType.roundRect, { x:0.55, y:2.1, w:5.5, h:4.0, fill:{ color:CARD }, line:{ color:CARD }, rectRadius:0.12 });
+s.addText("AD-EXPOSED", { x:0.55, y:2.38, w:5.5, h:0.3, fontFace:PP, fontSize:12, bold:true, color:GREY, align:"center", isTextBox:true, margin:0 });
+s.addText("$28.67", { x:0.55, y:2.85, w:5.5, h:1.3, fontFace:PP, fontSize:72, bold:true, color:WHITE, align:"center", isTextBox:true, margin:0 });
+s.addText("AVERAGE TRANSACTION VALUE", { x:0.55, y:4.25, w:5.5, h:0.3, fontFace:PP, fontSize:10, color:GREY, align:"center", isTextBox:true, margin:0 });
+s.addText("AUGUST 2026", { x:0.55, y:4.65, w:5.5, h:0.28, fontFace:PP, fontSize:10, bold:true, color:CORAL, align:"center", isTextBox:true, margin:0 });
+
+// ── RIGHT card — holdout ──
+s.addShape(p.ShapeType.roundRect, { x:7.28, y:2.1, w:5.5, h:4.0, fill:{ color:CARD }, line:{ color:CARD }, rectRadius:0.12 });
+s.addText("HOLDOUT GROUP", { x:7.28, y:2.38, w:5.5, h:0.3, fontFace:PP, fontSize:12, bold:true, color:GREY, align:"center", isTextBox:true, margin:0 });
+s.addText("$29.93", { x:7.28, y:2.85, w:5.5, h:1.3, fontFace:PP, fontSize:72, bold:true, color:WHITE, align:"center", isTextBox:true, margin:0 });
+s.addText("AVERAGE TRANSACTION VALUE", { x:7.28, y:4.25, w:5.5, h:0.3, fontFace:PP, fontSize:10, color:GREY, align:"center", isTextBox:true, margin:0 });
+s.addText("AUGUST 2026", { x:7.28, y:4.65, w:5.5, h:0.28, fontFace:PP, fontSize:10, bold:true, color:CORAL, align:"center", isTextBox:true, margin:0 });
+
+// ── VS badge (circle + text) ──
+s.addShape(p.ShapeType.ellipse, { x:5.92, y:3.3, w:1.5, h:1.5, fill:{ color:BG }, line:{ color:CORAL, width:2 } });
+s.addText("VS", { x:5.92, y:3.3, w:1.5, h:1.5, fontFace:PP, fontSize:22, bold:true, color:CORAL, align:"center", valign:"middle", isTextBox:true, margin:0 });
+
+// ── Difference callout ──
+s.addText("DIFFERENCE: $1.26  ·  4.2%", { x:0.5, y:6.25, w:12.3, h:0.35, fontFace:PP, fontSize:16, bold:true, color:GREY, align:"center", isTextBox:true, margin:0 });
+s.addText("Ads drive the decision to return — not basket size.", { x:0.5, y:6.65, w:12.3, h:0.3, fontFace:PP, fontSize:14, color:WHITE, align:"center", isTextBox:true, margin:0 });
+
+// Source note
+s.addText("ATV measured via Meta holdout methodology. Source: Meta Ads Manager & Redcat.", { x:0.5, y:7.22, w:11, h:0.22, fontFace:PP, fontSize:7.5, color:"3A5A70", isTextBox:true, margin:0 });
 
 p.writeFile({ fileName:"GMS_Oakberry_ATV_Slide.pptx" }).then(() => console.log("done"));
